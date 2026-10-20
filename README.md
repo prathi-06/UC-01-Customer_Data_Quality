@@ -1,6 +1,6 @@
 # UC-01 Customer Data Quality SaaS
 
-Production-grade subscription-based Customer Data Quality SaaS built for hackathon final evaluation, providing customer record validation (Rules R1 to R4) and standardized contact report processing.
+A subscription-based Customer Data Quality SaaS built for the Advantix final round.
 
 ---
 
@@ -8,53 +8,35 @@ Production-grade subscription-based Customer Data Quality SaaS built for hackath
 
 ```mermaid
 flowchart TD
-    Client["Browser UI / API Client"] -->|HTTP Requests| FastAPI["FastAPI Application (app/main.py)"]
-    FastAPI -->|StaticFiles Mount| Frontend["React + TypeScript UI (web/dist)"]
-    FastAPI -->|API Router (6 routes)| Routes["API Routes (app/routes.py)"]
+    Client["Browser UI or API Client"] -->|"HTTP Requests"| FastAPI["FastAPI Application in app/main.py"]
+    FastAPI -->|"StaticFiles Mount"| Frontend["React and TypeScript UI in web/dist"]
+    FastAPI -->|"API Router, 6 routes"| Routes["API Routes in app/routes.py"]
 
-    subgraph "Request Pipeline (POST /runs)"
-        Routes -->|1. Verify Token| Auth["Auth Guard (app/auth.py)"]
-        Routes -->|2. Check Tenant Override| OverrideGuard["Override Guard (app/auth.py)"]
-        Routes -->|3. Validate Body & Bounds| BodyValidator["Raw Body Parser (app/routes.py)"]
-        Routes -->|4. Plan Entitlement| PlanGuard["require_plan_entitlement (app/routes.py)"]
-        Routes -->|5. Atomic Accept & Quota| ServiceTx["Single Transaction (app/service.py)"]
-        Routes -->|6. Engine Execution| Logic["Validation / Processor (app/validation.py, app/processor.py)"]
+    subgraph Pipeline["Request Pipeline for POST /runs"]
+        Routes -->|"1. Verify Token"| Auth["Auth Guard in app/auth.py"]
+        Routes -->|"2. Check Tenant Override"| OverrideGuard["Override Guard in app/auth.py"]
+        Routes -->|"3. Validate Body and Bounds"| BodyValidator["Raw Body Parser in app/routes.py"]
+        Routes -->|"4. Plan Entitlement"| PlanGuard["require_plan_entitlement in app/routes.py"]
+        Routes -->|"5. Atomic Accept and Quota"| ServiceTx["Single Transaction in app/service.py"]
+        Routes -->|"6. Engine Execution"| Logic["Validation and Processor in app/validation.py and processor.py"]
     end
 
-    ServiceTx -->|SQLAlchemy 2.0 Core (psycopg 3)| NeonDB[("Neon PostgreSQL 18 (runs, daily_usage)")]
-    Routes -->|Subscription Store| SubStore["Subscription Store (File / Azure Blob)"]
+    ServiceTx -->|"SQLAlchemy 2.0 Core and psycopg 3"| NeonDB[("Neon PostgreSQL 18: runs and daily_usage")]
+    Routes -->|"Subscription Store"| SubStore["Subscription Store: File or Azure Blob"]
 ```
 
 ---
 
-## 2. Deviations & Explicit Exclusions
+## 2. Deviations from the brief
+- Database: PostgreSQL 18 on Neon (Singapore) instead of Azure SQL. The brief says organisers would prepare an Azure SQL database, but nothing was provided, so the team used the database it could provision quickly. Written organiser confirmation that PostgreSQL is acceptable: PENDING. The two-table design and the atomic claim and debit pattern are the same idea on either engine; the Azure SQL equivalent (insert catching duplicate-key errors 2627 or 2601, then UPDATE ... WHERE AcceptedRuns < limit and check @@ROWCOUNT) is described in section 4 but was NOT implemented or tested.
+- Not provided by the organisers, built by the team: starter code, login middleware, SQL and Blob wrappers, Terraform scaffolding, test harness (scripts/harness.py), processing helper, fixtures, and the Azure environment (scripts/bootstrap uses the az CLI to create the resource group, Log Analytics, Container Apps environment, registry, storage account and managed identity so Terraform manages exactly two resources).
+- Sessions: there is no login route. The brief treats login middleware as organiser-supplied, so the harness mints signed session tokens and the app verifies them on every protected route.
+- Request bodies are read as raw bytes and validated by hand so malformed, oversized or wrong-shaped input returns 400 (FastAPI's default would return 422).
+- The React UI is built into the same container and served by FastAPI, so there is one origin and no CORS.
+- ENABLE_TEST_HOOKS is a test-only switch that allows the shared forced-failure hook (X-Force-Failure). It is true on the dev deployment for check A11 and false otherwise.
 
-### Architectural Decisions
-- **PostgreSQL 18 (Neon) with SQLAlchemy 2.0 Core via psycopg 3 driver**:
-  - Instead of Azure SQL or SQLite, Neon PostgreSQL was selected for strict atomic single-transaction quota enforcement:
-    ```sql
-    INSERT INTO daily_usage (tenant_id, usage_date_utc, accepted_runs)
-    VALUES (:tenant_id, :usage_date, 1)
-    ON CONFLICT (tenant_id, usage_date_utc)
-    DO UPDATE SET accepted_runs = daily_usage.accepted_runs + 1
-    WHERE daily_usage.accepted_runs < :limit
-    RETURNING accepted_runs;
-    ```
-    If quota is exhausted, 0 rows return, prompting immediate transaction rollback. This disappears the speculative `Running` record without leaving orphaned rows or race-condition vulnerabilities.
-- **SQLAlchemy 2.0 Core Only (No ORM Models)**:
-  - Eliminates ORM caching, identity-map race conditions, and lazy-loading overhead under concurrent thread execution.
-- **Hand-Rolled Request Body Validation**:
-  - FastAPI's default Pydantic request-body parsing yields HTTP 422 Unprocessable Entity. Per spec, request bodies are read as raw bytes and validated manually to strictly guarantee HTTP 400 Bad Request on malformed JSON, excessive payload size (> 64 KiB), or invalid schemas.
-- **Unified Single-Origin Frontend**:
-  - React + TypeScript + Vite SPA is mounted directly via FastAPI `StaticFiles` at `/`, eliminating CORS headers and multi-origin session complications.
-
-### Explicit Exclusions (Out of Scope per Spec)
-- No message queues (RabbitMQ/Celery) or background schedulers.
-- No remote ERP or CRM API calls.
-- No payment processing, customer self-signup, or billing portals.
-- No CSV file ingest (JSON only).
-- No password hashing or database user credential stores (stateless JWT session tokens only).
-- No CI/CD pipelines or GitHub Actions runners.
+Out of scope per the brief: queues, remote ERP calls, payment checkout, signup, approval workflows, schedulers and extra admin screens.
+Scoping choices by the team (not from the brief): JSON input only (no CSV), no password store, no CI/CD pipeline.
 
 ---
 
@@ -88,7 +70,63 @@ flowchart TD
 
 ---
 
-## 4. POST /runs Check Order Pipeline
+## 4. Atomic Execution Pattern & Check Order Pipeline
+
+### Atomic Single-Transaction Claim and Debit (PostgreSQL Implementation)
+The acceptance of any submission and quota debit runs as a single database transaction in `accept_run()`:
+
+1. **Speculative Claim of Idempotency Key**:
+   ```sql
+   INSERT INTO runs (run_id, tenant_id, idempotency_key, input_fingerprint, operation, status, request_json, submitted_by)
+   VALUES (:run_id, :tenant_id, :idempotency_key, :input_fingerprint, :operation, 'Running', :request_json, :submitted_by)
+   ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
+   RETURNING run_id;
+   ```
+2. **Atomic Quota Debit**:
+   ```sql
+   INSERT INTO daily_usage (tenant_id, usage_date_utc, accepted_runs)
+   VALUES (:tenant_id, :usage_date, 1)
+   ON CONFLICT (tenant_id, usage_date_utc)
+   DO UPDATE SET accepted_runs = daily_usage.accepted_runs + 1
+   WHERE daily_usage.accepted_runs < :limit
+   RETURNING accepted_runs;
+   ```
+
+**Explanation**:
+Both queries run within a single transaction in `accept_run()`. If the idempotency key already exists, step 1 returns zero rows and triggers a replay lookup. If daily quota has reached the plan limit, step 2 updates zero rows, which causes an immediate rollback of the speculative `Running` record so no orphan row remains. Only when both steps succeed does `trans.commit()` persist the `Running` state before the processing logic runs.
+
+### Azure SQL Equivalent (Conceptual Design)
+For an Azure SQL implementation (described here per Section 2, but NOT implemented or tested):
+```sql
+BEGIN TRANSACTION;
+BEGIN TRY
+    INSERT INTO Runs (RunId, TenantId, IdempotencyKey, InputFingerprint, Operation, Status)
+    VALUES (@RunId, @TenantId, @IdempotencyKey, @InputFingerprint, @Operation, 'Running');
+END TRY
+BEGIN CATCH
+    IF ERROR_NUMBER() IN (2627, 2601) -- Duplicate key error
+    BEGIN
+        ROLLBACK TRANSACTION;
+        -- Replay lookup ...
+        RETURN;
+    END
+END CATCH;
+
+UPDATE DailyUsage
+SET AcceptedRuns = AcceptedRuns + 1
+WHERE TenantId = @TenantId AND UsageDateUtc = @UsageDate AND AcceptedRuns < @Limit;
+
+IF @@ROWCOUNT = 0
+BEGIN
+    ROLLBACK TRANSACTION; -- Quota exhausted
+END
+ELSE
+BEGIN
+    COMMIT TRANSACTION;
+END
+```
+
+### POST /runs Check Order Pipeline
 
 The `POST /runs` endpoint strictly executes the following sequence before any quota debit or execution occurs:
 
@@ -112,7 +150,7 @@ The `POST /runs` endpoint strictly executes the following sequence before any qu
 
 | Check ID | Description | Status | Environment | Evidence Location |
 |:--------:|:------------|:------:|:-----------:|:------------------|
-| **A01** | Terraform validate, apply, /health probe, zero-drift plan | PENDING | cloud | [evidence/A01/README.md](evidence/A01/README.md) |
+| **A01** | Terraform validate, apply, /health probe, plan check | PENDING | cloud | [evidence/A01/README.md](evidence/A01/README.md) |
 | **A02** | Validate 2-row valid fixture (2 valid, 0 invalid, no issues) | PASS | local | [evidence/A02.json](evidence/A02.json) |
 | **A03** | Validate 6-row invalid fixture (2 valid, 4 invalid, R1–R4 failures) | PASS | local | [evidence/A03.json](evidence/A03.json) |
 | **A04** | Pro process execution; output retrieved via API across restart | PASS | local | [evidence/A04.json](evidence/A04.json) |
