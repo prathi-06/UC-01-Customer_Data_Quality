@@ -153,22 +153,9 @@ The `POST /runs` endpoint strictly executes the following sequence before any qu
 
 ---
 
-## 5. Acceptance Criteria Matrix (A01 - A12)
+## 5. Evidence
 
-| Check ID | Description | Status | Environment | Evidence Location |
-|:--------:|:------------|:------:|:-----------:|:------------------|
-| **A01** | Terraform validate, apply, /health probe, plan check | PENDING | cloud | [evidence/A01/README.md](evidence/A01/README.md) |
-| **A02** | Validate 2-row valid fixture (2 valid, 0 invalid, no issues) | PASS | local | [evidence/A02.json](evidence/A02.json) |
-| **A03** | Validate 6-row invalid fixture (2 valid, 4 invalid, R1–R4 failures) | PASS | local | [evidence/A03.json](evidence/A03.json) |
-| **A04** | Pro process execution; output retrieved via API across restart | PASS | local | [evidence/A04.json](evidence/A04.json) |
-| **A05** | Invalid process input, wrong body shape, 11 rows reject 400 (no debit) | PASS | local | [evidence/A05.json](evidence/A05.json) |
-| **A06** | Unauthenticated 401, Viewer submit 403, Basic process 403 (no debit) | PASS | local | [evidence/A06.json](evidence/A06.json) |
-| **A07** | Cross-tenant access 404, tenant override reject 400 | PASS | local | [evidence/A07.json](evidence/A07.json) |
-| **A08** | Basic quota 3 accepted, 4th rejected 429; atomic 1-slot race condition | PASS | local | [evidence/A08.json](evidence/A08.json) |
-| **A09** | Terminal replay 200 at exhausted quota; key reuse with changed input 409 | PASS | local | [evidence/A09.json](evidence/A09.json) |
-| **A10** | Suspended tenant POST returns 403; historical reads continue | PASS | local | [evidence/A10.json](evidence/A10.json) |
-| **A11** | X-Force-Failure forces Failed state; slot debited; replay returns failure | PASS | local | [evidence/A11.json](evidence/A11.json) |
-| **A12** | Teammate replay following SKILL.md from fresh clone | PENDING | cloud | [evidence/A12/README.md](evidence/A12/README.md) |
+Evidence for the checks that were run is in the evidence/ folder (see evidence/INDEX.md). A01 (cloud deployment) and A12 (fresh-session replay of SKILL.md) are pending.
 
 ---
 
