@@ -1,0 +1,53 @@
+export const VALID_FIXTURE = [
+  {
+    "record_id": "C01",
+    "email": " ALICE@EXAMPLE.COM ",
+    "credit_limit": 500,
+    "status": "ACTIVE"
+  },
+  {
+    "record_id": "C02",
+    "email": "bob@example.com",
+    "credit_limit": 0,
+    "status": "INACTIVE"
+  }
+];
+
+export const INVALID_FIXTURE = [
+  {
+    "record_id": "C01",
+    "email": " ALICE@EXAMPLE.COM ",
+    "credit_limit": 500,
+    "status": "ACTIVE"
+  },
+  {
+    "record_id": "C02",
+    "email": "bob@example.com",
+    "credit_limit": 0,
+    "status": "INACTIVE"
+  },
+  {
+    "record_id": "C01",
+    "email": " ALICE@EXAMPLE.COM ",
+    "credit_limit": 500,
+    "status": "ACTIVE"
+  },
+  {
+    "record_id": "X2",
+    "email": "bad-address",
+    "credit_limit": 500,
+    "status": "ACTIVE"
+  },
+  {
+    "record_id": "X3",
+    "email": " ALICE@EXAMPLE.COM ",
+    "credit_limit": -1,
+    "status": "ACTIVE"
+  },
+  {
+    "record_id": "X4",
+    "email": " ALICE@EXAMPLE.COM ",
+    "credit_limit": 500,
+    "status": "UNKNOWN"
+  }
+];

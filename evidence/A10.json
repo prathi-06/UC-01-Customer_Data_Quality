@@ -1,0 +1,16 @@
+{
+  "check_id": "A10",
+  "request": {
+    "url": "/runs",
+    "headers": {
+      "Authorization": "[REDACTED]"
+    }
+  },
+  "status_code": 403,
+  "response": {
+    "error": {
+      "code": "SUBSCRIPTION_SUSPENDED",
+      "message": "Tenant subscription is suspended."
+    }
+  }
+}

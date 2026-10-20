@@ -1,0 +1,16 @@
+{
+  "check_id": "A07",
+  "request": {
+    "url": "/runs/46ce06ca-1c7a-4ff9-acf3-fcb06529423c/result",
+    "headers": {
+      "Authorization": "[REDACTED]"
+    }
+  },
+  "status_code": 404,
+  "response": {
+    "error": {
+      "code": "RUN_NOT_FOUND",
+      "message": "Run not found."
+    }
+  }
+}

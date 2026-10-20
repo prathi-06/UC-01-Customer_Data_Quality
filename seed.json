@@ -1,0 +1,36 @@
+{
+  "tenants": [
+    {
+      "tenant_id": "acme",
+      "name": "Acme Corp",
+      "plan": "Pro",
+      "status": "Active",
+      "users": [
+        {
+          "username": "acme_operator",
+          "role": "Operator"
+        },
+        {
+          "username": "acme_viewer",
+          "role": "Viewer"
+        }
+      ]
+    },
+    {
+      "tenant_id": "globex",
+      "name": "Globex Corporation",
+      "plan": "Basic",
+      "status": "Active",
+      "users": [
+        {
+          "username": "globex_operator",
+          "role": "Operator"
+        },
+        {
+          "username": "globex_viewer",
+          "role": "Viewer"
+        }
+      ]
+    }
+  ]
+}

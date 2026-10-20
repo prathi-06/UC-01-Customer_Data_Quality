@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Deploy Customer Data Quality SaaS
+# Steps: get git SHA, build ACR image, terraform init/validate/apply with -target, alembic upgrade, print URL
+set -euo pipefail
+
+ENV_FILE="${1:-infra/dev.tfvars}"
+IMAGE_TAG=$(git rev-parse --short HEAD 2>/dev/null || echo "git-sha-manual")
+ACR_NAME="${ACR_NAME:-acrhackathondev}"
+IMAGE_NAME="customer-saas"
+
+echo "=== DEPLOYMENT CONFIGURATION ==="
+echo "Git SHA Image Tag: ${IMAGE_TAG}"
+echo "ACR Registry: ${ACR_NAME}"
+echo "Variables File: ${ENV_FILE}"
+echo "Target 1: azurerm_container_app.app"
+echo "Target 2: azurerm_storage_container.subscriptions"
+echo "================================"
+
+echo "Step 1: Building container image via az acr build..."
+az acr build --registry "${ACR_NAME}" --image "${IMAGE_NAME}:${IMAGE_TAG}" .
+
+echo "Step 2: Terraform initialization and validation..."
+cd infra
+terraform init
+terraform validate
+
+echo "Step 3: Terraform apply targeting exactly two resources..."
+terraform apply -auto-approve \
+  -var-file="$(basename "${ENV_FILE}")" \
+  -var="image_tag=${IMAGE_TAG}" \
+  -target="azurerm_container_app.app" \
+  -target="azurerm_storage_container.subscriptions"
+
+APP_URL=$(terraform output -raw app_url 2>/dev/null || echo "https://ca-customer-saas.internal")
+cd ..
+
+echo "Step 4: Running Alembic database migrations..."
+alembic upgrade head
+
+echo "=== DEPLOYMENT SUCCESSFUL ==="
+echo "Deployed App URL: ${APP_URL}"
+echo "============================="

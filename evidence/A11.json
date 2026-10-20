@@ -1,0 +1,35 @@
+{
+  "check_id": "A11",
+  "request": {
+    "url": "/runs",
+    "method": "POST",
+    "headers": {
+      "Authorization": "[REDACTED]",
+      "Idempotency-Key": "a11-hook",
+      "X-Force-Failure": "1"
+    },
+    "json": {
+      "operation": "process",
+      "records": [
+        {
+          "record_id": "C01",
+          "email": " ALICE@EXAMPLE.COM ",
+          "credit_limit": 500,
+          "status": "ACTIVE"
+        },
+        {
+          "record_id": "C02",
+          "email": "bob@example.com",
+          "credit_limit": 0,
+          "status": "INACTIVE"
+        }
+      ]
+    }
+  },
+  "status_code": 201,
+  "response": {
+    "run_id": "d7da36ef-607a-48ac-b5c4-746450158b11",
+    "status": "Failed",
+    "error": "PROCESSING_FAILED"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "check_id": "A02",
+  "request": {
+    "url": "/runs",
+    "method": "POST",
+    "headers": {
+      "Authorization": "[REDACTED]",
+      "Idempotency-Key": "acceptance-a02"
+    },
+    "json": {
+      "operation": "validate",
+      "records": [
+        {
+          "record_id": "C01",
+          "email": " ALICE@EXAMPLE.COM ",
+          "credit_limit": 500,
+          "status": "ACTIVE"
+        },
+        {
+          "record_id": "C02",
+          "email": "bob@example.com",
+          "credit_limit": 0,
+          "status": "INACTIVE"
+        }
+      ]
+    }
+  },
+  "status_code": 201,
+  "response": {
+    "run_id": "616287f7-3f0c-4e6e-afc1-990a44e1b2c3",
+    "status": "Succeeded",
+    "result": {
+      "valid_rows": 2,
+      "invalid_rows": 0,
+      "issues": []
+    }
+  }
+}

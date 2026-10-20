@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Bootstrap infrastructure dependencies for Customer Data Quality SaaS
+# Creates Resource Group, Log Analytics Workspace, Container App Environment, ACR, and Storage Account
+set -euo pipefail
+
+RG_NAME="${1:-rg-hackathon-dev}"
+LOCATION="${2:-southeastasia}"
+LOG_ANALYTICS_NAME="${RG_NAME}-law"
+CAE_NAME="${RG_NAME}-cae"
+ACR_NAME="acr$(echo -n "${RG_NAME}" | tr -d '-' | tr '[:upper:]' '[:lower:]')"
+STORAGE_NAME="st$(echo -n "${RG_NAME}" | tr -d '-' | tr '[:upper:]' '[:lower:]')"
+
+echo "=== BOOTSTRAP COMMANDS TO EXECUTE ==="
+echo "1. az group create --name ${RG_NAME} --location ${LOCATION}"
+echo "2. az monitor log-analytics workspace create --resource-group ${RG_NAME} --workspace-name ${LOG_ANALYTICS_NAME} --location ${LOCATION}"
+echo "3. az containerapp env create --name ${CAE_NAME} --resource-group ${RG_NAME} --location ${LOCATION} --logs-workspace-id <LOG_WORKSPACE_CLIENT_ID> --logs-workspace-key <LOG_WORKSPACE_PRIMARY_SHARED_KEY>"
+echo "4. az acr create --resource-group ${RG_NAME} --name ${ACR_NAME} --sku Basic --admin-enabled true"
+echo "5. az storage account create --name ${STORAGE_NAME} --resource-group ${RG_NAME} --location ${LOCATION} --sku Standard_LRS"
+echo "======================================"
+
+read -p "Proceed with executing cloud provisioning? (y/N): " confirm
+if [[ "${confirm}" != "y" && "${confirm}" != "Y" ]]; then
+  echo "Aborted."
+  exit 0
+fi
+
+echo "Creating Resource Group..."
+az group create --name "${RG_NAME}" --location "${LOCATION}"
+
+echo "Creating Log Analytics Workspace..."
+az monitor log-analytics workspace create --resource-group "${RG_NAME}" --workspace-name "${LOG_ANALYTICS_NAME}" --location "${LOCATION}"
+
+WORKSPACE_ID=$(az monitor log-analytics workspace show --resource-group "${RG_NAME}" --workspace-name "${LOG_ANALYTICS_NAME}" --query customerId -o tsv)
+WORKSPACE_KEY=$(az monitor log-analytics workspace get-shared-keys --resource-group "${RG_NAME}" --workspace-name "${LOG_ANALYTICS_NAME}" --query primarySharedKey -o tsv)
+
+echo "Creating Container Apps Environment..."
+az containerapp env create \
+  --name "${CAE_NAME}" \
+  --resource-group "${RG_NAME}" \
+  --location "${LOCATION}" \
+  --logs-workspace-id "${WORKSPACE_ID}" \
+  --logs-workspace-key "${WORKSPACE_KEY}"
+
+echo "Creating Azure Container Registry..."
+az acr create --resource-group "${RG_NAME}" --name "${ACR_NAME}" --sku Basic --admin-enabled true
+
+echo "Creating Azure Storage Account..."
+az storage account create --name "${STORAGE_NAME}" --resource-group "${RG_NAME}" --location "${LOCATION}" --sku Standard_LRS
+
+echo "Bootstrap completed successfully!"

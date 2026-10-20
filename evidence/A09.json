@@ -1,0 +1,20 @@
+{
+  "check_id": "A09",
+  "request": {
+    "url": "/runs",
+    "headers": {
+      "Authorization": "[REDACTED]",
+      "Idempotency-Key": "a08-key-1"
+    }
+  },
+  "status_code": 200,
+  "response": {
+    "run_id": "f77a8fc3-49f6-4674-977c-6170dbbe6d22",
+    "status": "Succeeded",
+    "result": {
+      "issues": [],
+      "valid_rows": 2,
+      "invalid_rows": 0
+    }
+  }
+}

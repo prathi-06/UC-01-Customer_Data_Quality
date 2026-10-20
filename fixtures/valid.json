@@ -1,0 +1,17 @@
+{
+  "operation": "validate",
+  "records": [
+    {
+      "record_id": "C01",
+      "email": " ALICE@EXAMPLE.COM ",
+      "credit_limit": 500,
+      "status": "ACTIVE"
+    },
+    {
+      "record_id": "C02",
+      "email": "bob@example.com",
+      "credit_limit": 0,
+      "status": "INACTIVE"
+    }
+  ]
+}

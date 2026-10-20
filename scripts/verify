@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Verify deployment of Customer Data Quality SaaS
+# Checks: curl /health == 200, terraform plan -detailed-exitcode == 0, runs tests/acceptance.py
+set -euo pipefail
+
+APP_URL="${1:-}"
+ENV_FILE="${2:-infra/dev.tfvars}"
+
+if [ -z "${APP_URL}" ]; then
+  cd infra
+  APP_URL=$(terraform output -raw app_url 2>/dev/null || echo "http://127.0.0.1:8000")
+  cd ..
+fi
+
+echo "=== VERIFY DEPLOYMENT ==="
+echo "Target App URL: ${APP_URL}"
+echo "Variables File: ${ENV_FILE}"
+echo "========================="
+
+echo "Check 1: Probing /health endpoint..."
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" "${APP_URL}/health")
+if [ "${STATUS}" != "200" ]; then
+  echo "Verification FAILED: /health returned HTTP ${STATUS} (expected 200)"
+  exit 1
+fi
+echo "Probed /health -> 200 OK"
+
+echo "Check 2: Verifying no resource changes via terraform plan..."
+cd infra
+IMAGE_TAG=$(git rev-parse --short HEAD 2>/dev/null || echo "git-sha-manual")
+terraform plan -detailed-exitcode \
+  -var-file="$(basename "${ENV_FILE}")" \
+  -var="image_tag=${IMAGE_TAG}" \
+  -target="azurerm_container_app.app" \
+  -target="azurerm_storage_container.subscriptions"
+cd ..
+echo "Terraform plan confirmed 0 resource changes (exit code 0)."
+
+echo "Check 3: Running complete acceptance test suite against deployed URL..."
+python tests/acceptance.py --base-url "${APP_URL}"
+
+echo "=== ALL VERIFICATION CHECKS PASSED ==="

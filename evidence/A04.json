@@ -1,0 +1,77 @@
+{
+  "check_id": "A04",
+  "request": {
+    "url": "/runs",
+    "method": "POST",
+    "headers": {
+      "Authorization": "[REDACTED]",
+      "Idempotency-Key": "acceptance-a04"
+    },
+    "json": {
+      "operation": "process",
+      "records": [
+        {
+          "record_id": "C01",
+          "email": " ALICE@EXAMPLE.COM ",
+          "credit_limit": 500,
+          "status": "ACTIVE"
+        },
+        {
+          "record_id": "C02",
+          "email": "bob@example.com",
+          "credit_limit": 0,
+          "status": "INACTIVE"
+        }
+      ]
+    }
+  },
+  "status_code": 201,
+  "response": {
+    "create": {
+      "run_id": "2605650b-9323-4233-b77f-d43084fd7c3d",
+      "status": "Succeeded",
+      "result": {
+        "summary": {
+          "input_rows": 2,
+          "contactable_rows": 1
+        },
+        "rows": [
+          {
+            "record_id": "C01",
+            "email": "alice@example.com",
+            "contactable": true
+          },
+          {
+            "record_id": "C02",
+            "email": "bob@example.com",
+            "contactable": false
+          }
+        ],
+        "issues": []
+      }
+    },
+    "fetched_result": {
+      "run_id": "2605650b-9323-4233-b77f-d43084fd7c3d",
+      "status": "Succeeded",
+      "result": {
+        "rows": [
+          {
+            "email": "alice@example.com",
+            "record_id": "C01",
+            "contactable": true
+          },
+          {
+            "email": "bob@example.com",
+            "record_id": "C02",
+            "contactable": false
+          }
+        ],
+        "issues": [],
+        "summary": {
+          "input_rows": 2,
+          "contactable_rows": 1
+        }
+      }
+    }
+  }
+}

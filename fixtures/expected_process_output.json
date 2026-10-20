@@ -1,0 +1,19 @@
+{
+  "summary": {
+    "input_rows": 2,
+    "contactable_rows": 1
+  },
+  "rows": [
+    {
+      "record_id": "C01",
+      "email": "alice@example.com",
+      "contactable": true
+    },
+    {
+      "record_id": "C02",
+      "email": "bob@example.com",
+      "contactable": false
+    }
+  ],
+  "issues": []
+}

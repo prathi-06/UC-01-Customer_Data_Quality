@@ -1,0 +1,17 @@
+{
+  "check_id": "A08",
+  "request": {
+    "url": "/runs",
+    "headers": {
+      "Authorization": "[REDACTED]",
+      "Idempotency-Key": "a08-key-4"
+    }
+  },
+  "status_code": 429,
+  "response": {
+    "error": {
+      "code": "QUOTA_EXHAUSTED",
+      "message": "Daily run quota exhausted."
+    }
+  }
+}

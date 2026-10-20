@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Cleanup team-owned Terraform resources (Container App and Storage Container)
+# Requires explicit typed confirmation
+set -euo pipefail
+
+ENV_FILE="${1:-infra/dev.tfvars}"
+
+echo "=========================================================="
+echo "WARNING: DESTRUCTIVE ACTION"
+echo "This will destroy the two team resources:"
+echo "  1. azurerm_container_app.app"
+echo "  2. azurerm_storage_container.subscriptions"
+echo "=========================================================="
+echo "To confirm, please type exactly 'DESTROY' and press enter:"
+
+read -r CONFIRMATION
+if [ "${CONFIRMATION}" != "DESTROY" ]; then
+  echo "Confirmation mismatched ('${CONFIRMATION}' != 'DESTROY'). Aborting cleanup."
+  exit 1
+fi
+
+echo "Destroying team resources..."
+cd infra
+IMAGE_TAG=$(git rev-parse --short HEAD 2>/dev/null || echo "git-sha-manual")
+terraform destroy -auto-approve \
+  -var-file="$(basename "${ENV_FILE}")" \
+  -var="image_tag=${IMAGE_TAG}" \
+  -target="azurerm_container_app.app" \
+  -target="azurerm_storage_container.subscriptions"
+cd ..
+
+echo "Team resources destroyed cleanly."
