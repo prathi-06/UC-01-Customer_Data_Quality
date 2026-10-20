@@ -28,15 +28,22 @@ flowchart TD
 ---
 
 ## 2. Deviations from the brief
-- Database: PostgreSQL 18 on Neon (Singapore) instead of Azure SQL. The brief says organisers would prepare an Azure SQL database, but nothing was provided, so the team used the database it could provision quickly. Written organiser confirmation that PostgreSQL is acceptable: PENDING. The two-table design and the atomic claim and debit pattern are the same idea on either engine; the Azure SQL equivalent (insert catching duplicate-key errors 2627 or 2601, then UPDATE ... WHERE AcceptedRuns < limit and check @@ROWCOUNT) is described in section 4 but was NOT implemented or tested.
-- Not provided by the organisers, built by the team: starter code, login middleware, SQL and Blob wrappers, Terraform scaffolding, test harness (scripts/harness.py), processing helper, fixtures, and the Azure environment (scripts/bootstrap uses the az CLI to create the resource group, Log Analytics, Container Apps environment, registry, storage account and managed identity so Terraform manages exactly two resources).
-- Sessions: there is no login route. The brief treats login middleware as organiser-supplied, so the harness mints signed session tokens and the app verifies them on every protected route.
-- Request bodies are read as raw bytes and validated by hand so malformed, oversized or wrong-shaped input returns 400 (FastAPI's default would return 422).
-- The React UI is built into the same container and served by FastAPI, so there is one origin and no CORS.
-- ENABLE_TEST_HOOKS is a test-only switch that allows the shared forced-failure hook (X-Force-Failure). It is true on the dev deployment for check A11 and false otherwise.
 
-Out of scope per the brief: queues, remote ERP calls, payment checkout, signup, approval workflows, schedulers and extra admin screens.
-Scoping choices by the team (not from the brief): JSON input only (no CSV), no password store, no CI/CD pipeline.
+**Database: PostgreSQL 18 on Neon (Singapore), not Azure SQL.**
+We chose PostgreSQL because we could set it up in minutes on a free plan with no card, and it runs the same way in Docker for local testing. It supports everything the design needs: a unique constraint on (tenant, key) and a conditional upsert for the daily quota, so the claim and the debit stay atomic in one transaction (section 4). The same idea works on Azure SQL (insert and catch duplicate-key errors 2627 or 2601, then UPDATE ... WHERE AcceptedRuns < limit and check @@ROWCOUNT). That version is described in section 4 but we did not implement or test it. Organiser confirmation that PostgreSQL is acceptable: PENDING.
+
+**Environment.** We set up our own Azure environment. scripts/bootstrap creates the resource group, Log Analytics workspace, Container Apps environment, registry and storage account with the az CLI, so Terraform manages exactly the two resources the brief names.
+
+**Sessions.** There is no login route, because the brief fixes the app at six routes. scripts/harness.py mints signed session tokens and the app verifies them on every protected route. Tenant and role come only from that token.
+
+**Request handling.** The API reads the raw body and validates it by hand, so malformed, oversized or wrong-shaped input returns 400. FastAPI's default validation would return 422.
+
+**Frontend.** The React UI is built into the same container and served by FastAPI, so there is one origin and no CORS.
+
+**Test hook.** ENABLE_TEST_HOOKS switches on the forced-failure hook (X-Force-Failure) for check A11. It is true on the dev deployment and false otherwise.
+
+**Out of scope per the brief:** queues, remote ERP calls, payment checkout, signup, approval workflows, schedulers and extra admin screens.
+**Our own scoping choices:** JSON input only (no CSV), no password store, no CI/CD pipeline.
 
 ---
 
