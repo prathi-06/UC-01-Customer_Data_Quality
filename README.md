@@ -169,7 +169,7 @@ cd ..
 
 ### Step 5: Run Automated Tests
 ```bash
-# Run full pytest suite (61 tests)
+# Run full pytest suite (62 tests)
 pytest -v
 ```
 
