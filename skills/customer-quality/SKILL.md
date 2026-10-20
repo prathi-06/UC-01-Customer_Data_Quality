@@ -1,155 +1,138 @@
 ---
 name: customer-quality
-description: Operational runbook and automation skill for Customer Data Quality SaaS (UC-01) deployment, verification, acceptance testing, troubleshooting, rollback, and cleanup.
+description: Operational runbook for deploying, verifying, testing, troubleshooting, rolling back, and cleaning up the UC-01 Customer Data Quality SaaS.
 ---
 
-# Customer Data Quality Operations Skill
+# Customer Data Quality Operations Runbook
 
 ## Trigger
-Use this skill when deploying, verifying, testing, troubleshooting, or tearing down the UC-01 Customer Data Quality SaaS application.
+Use this skill when deploying, verifying, testing, troubleshooting, rolling back, or cleaning up the UC-01 Customer Data Quality SaaS application.
 
-## Required Inputs & Environment
-1. **Shell Requirement**: Use `bash` (Git Bash or WSL on Windows; standard bash on Linux/macOS). All deployment and verification scripts (`scripts/*`) are POSIX bash scripts.
-2. **Azure Credentials**: Verified via `az login` prior to running cloud deployment commands.
-3. **DATABASE_URL**: Neon PostgreSQL connection URL with psycopg3 driver (`postgresql+psycopg://...sslmode=require`).
-4. **JWT_SECRET**: Secret key used to sign and verify HS256 JWT tokens.
-5. **Environment Variables**:
-   - `SUBSCRIPTION_STORE`: `file` (default) or `blob`
-   - `ENABLE_TEST_HOOKS`: `true` to honour `X-Force-Failure` testing hook.
+## Required Inputs
+Provide names only (never print or commit secret values):
+- `APP_URL`
+- `IMAGE_TAG`
+- `DATABASE_URL`
+- `JWT_SECRET`
+- `SUBSCRIPTION_STORE`
+- `ENABLE_TEST_HOOKS`
+- `ACR_NAME`
+- `AZURE_STORAGE_CONNECTION_STRING`
+- `AZURE_STORAGE_CONTAINER_NAME`
 
-## Preflight Checklist
-Before initiating any deployment or evaluation run, complete the following preflight checks:
+## Preflight
+Run the following preflight checks before proceeding. If any check fails, STOP immediately.
 ```bash
-# 1. Shell verification (must be bash)
-echo "$BASH_VERSION"
-
-# 2. Verify Python 3.11/3.12 and virtualenv
-python --version
-pip list | grep -E "fastapi|sqlalchemy|psycopg|alembic"
-
-# 3. Verify Node & Frontend build
-node -v
-cd web && npm run build && cd ..
-
-# 4. Verify Azure CLI login (only required for cloud deployments)
+# 1. Verify Azure CLI login and active subscription
 az account show
 
-# 5. Verify Database connectivity
-python scripts/test_db_connection.py
+# 2. Verify Terraform is installed
+terraform version
+
+# 3. Verify Docker is installed and daemon is responsive
+docker info
+
+# 4. Verify local environment file exists
+test -f .env || echo "MISSING .env"
 ```
+STOP condition: If `az account show` fails, Terraform is missing, the Docker daemon is unreachable, or `.env` is absent, STOP and resolve before continuing.
 
-## Exact Script Commands and Expected Results
-
-### 1. Bootstrap Cloud Resources
-Creates Resource Group, Log Analytics workspace, Container Apps environment, Azure Container Registry (ACR), and Storage Account.
-```bash
-./scripts/bootstrap "rg-hackathon-dev" "southeastasia"
-```
-**Expected Result**:
-- All Azure base resources provisioned with exit code 0.
-
-### 2. Deploy Application
-Builds Docker container image tagged with the current git commit SHA, runs Terraform targeting the Container App and private Blob container, runs Alembic migrations, and outputs the live HTTPS endpoint.
+## Deploy
+Run the deployment script using the target variables file:
 ```bash
 ./scripts/deploy infra/dev.tfvars
 ```
-**Expected Result**:
-- Image built and pushed to ACR: `customer-saas:<git-sha>`.
-- Terraform applies exactly two targeted resources (`azurerm_container_app.app` and `azurerm_storage_container.subscriptions`).
-- Alembic runs `upgrade head` creating `runs` and `daily_usage` tables.
-- Prints deployed app URL: `https://ca-customer-saas.<region>.azurecontainerapps.io`.
+Expected output:
+- Container image built and pushed to ACR with tag matching `IMAGE_TAG` (`customer-saas:<git-sha>`).
+- Terraform runs `init`, `validate`, and applies exactly two targeted resources (`azurerm_container_app.app` and `azurerm_storage_container.subscriptions`).
+- Database migrations execute via `alembic upgrade head`.
+- Script prints `=== DEPLOYMENT SUCCESSFUL ===` with `Deployed App URL: <APP_URL>`.
 
-### 3. Verify Deployment
-Executes live health checks, verifies zero-drift Terraform plan, and executes the acceptance suite:
+## Verify
+Run the deployment verification script against the deployed app URL:
 ```bash
-./scripts/verify https://<app-fqdn> infra/dev.tfvars
+./scripts/verify "<APP_URL>" infra/dev.tfvars
 ```
-**Expected Result**:
-- `curl /health` returns HTTP 200 `{"status": "ok"}`.
-- `terraform plan -detailed-exitcode` exits with code 0 (zero resource changes).
-- All acceptance checks A02 through A11 pass green.
+Expected verification results:
+- `GET /health` probe returns HTTP 200 with body `{"status": "ok"}`.
+- Second `terraform plan -detailed-exitcode` exits with code 0 (zero resource drift).
+- Validation on valid fixture (`fixtures/valid.json`) returns HTTP 201 with expected payload:
+  - `valid_rows`: 2
+  - `invalid_rows`: 0
+  - `issues`: `[]`
+- Validation on invalid fixture (`fixtures/invalid.json`) returns HTTP 201 with expected payload:
+  - `valid_rows`: 2
+  - `invalid_rows`: 4
+  - Issues list containing exactly:
+    - Rule R1 failure at `row_index: 3`, `field: "record_id"`
+    - Rule R2 failure at `row_index: 4`, `field: "email"`
+    - Rule R3 failure at `row_index: 5`, `field: "credit_limit"`
+    - Rule R4 failure at `row_index: 6`, `field: "status"`
+- Pro `process` operation on valid fixture returns HTTP 201 with expected payload:
+  - Row 1: `record_id: "C01"`, `email: "alice@example.com"`, `contactable: true`
+  - Row 2: `record_id: "C02"`, `email: "bob@example.com"`, `contactable: false`
+  - Summary: `input_rows: 2`, `contactable_rows: 1`, `issues: []`
 
-### 4. Harness Operations
-Mint tokens or manage tenancy directly:
+## Common Checks
+To execute the automated acceptance test suite against a deployed environment:
 ```bash
-# Mint token for Pro Operator
-python scripts/harness.py mint-token acme:Operator
-
-# Mint token for Basic Viewer
-python scripts/harness.py mint-token globex:Viewer
-
-# Reset runs and daily quota
-python scripts/harness.py reset-runs acme
-python scripts/harness.py reset-quota acme
-
-# Suspend and re-activate subscription
-python scripts/harness.py suspend acme
-python scripts/harness.py activate acme
-
-# Switch plan
-python scripts/harness.py set-plan acme Basic
+python tests/acceptance.py --base-url "<APP_URL>"
 ```
+Expected output and written evidence files:
+- Executes checks A02 through A11 and writes sanitized JSON evidence files:
+  - `evidence/A02.json`
+  - `evidence/A03.json`
+  - `evidence/A04.json`
+  - `evidence/A05.json`
+  - `evidence/A06.json`
+  - `evidence/A07.json`
+  - `evidence/A08.json`
+  - `evidence/A09.json`
+  - `evidence/A10.json`
+  - `evidence/A11.json`
 
-## Stop Conditions
-Halt immediately if:
-- `scripts/test_db_connection.py` fails to connect to PostgreSQL.
-- Database transaction in `accept_run` fails to acquire atomic lock or rolls back unexpectedly.
-- Quota concurrency test in `test_service_db.py` produces flakiness.
-- Any acceptance check from A02 to A11 fails status or response assertions.
-- Non-zero exit code on `terraform plan -detailed-exitcode`.
+## Troubleshooting the Forced Failure
+For forced-failure diagnostics (Check A11):
+- Supply the header `X-Force-Failure: 1` or `X-Force-Failure: true` on `POST /runs`.
+- Requirement: `ENABLE_TEST_HOOKS` must be `true` in the environment configuration. If false, the header is ignored and execution proceeds normally.
+- Expected behavior:
+  - Endpoint returns HTTP 201 Created.
+  - Run status is recorded as `Failed` with error payload `PROCESSING_FAILED`.
+  - Exactly one daily quota slot is debited for the tenant.
+  - Replaying the same request with the identical `Idempotency-Key` returns HTTP 200 with the recorded `Failed` status and error without re-running the processor.
 
-## Troubleshooting & Forced Failure Hook
+## Rollback
+If a regression occurs, re-deploy using the prior git commit SHA image tag:
+```bash
+# 1. Identify previous stable commit SHA
+PREV_SHA=$(git rev-parse --short HEAD~1)
 
-### Forced Failure Testing (A11)
-To verify failure handling and quota debit persistence:
-1. Ensure `ENABLE_TEST_HOOKS=true` is configured on the Container App environment.
-2. Submit a run with the header:
-   ```http
-   POST /runs HTTP/1.1
-   Authorization: Bearer <TOKEN>
-   Idempotency-Key: test-forced-fail-001
-   X-Force-Failure: true
-   Content-Type: application/json
+# 2. Re-run deployment targeting the prior image tag
+cd infra
+terraform apply -auto-approve \
+  -var-file="dev.tfvars" \
+  -var="image_tag=${PREV_SHA}" \
+  -target="azurerm_container_app.app" \
+  -target="azurerm_storage_container.subscriptions"
+cd ..
 
-   { "operation": "process", "records": [...] }
-   ```
-3. **Expected Behavior**:
-   - Status code is 201 Created.
-   - Run status is persisted as `Failed` with error `{"code": "FORCED_FAILURE", "message": "Failure forced by test hook."}`.
-   - Exactly 1 daily quota slot is debited.
-   - Subsequent re-submissions with the same key return 200 OK replay with status `Failed` without re-running the processor.
+# 3. Re-run verification
+./scripts/verify "<APP_URL>" infra/dev.tfvars
+```
+Expected output: Container App revisions roll back to image tag `${PREV_SHA}` and verification returns HTTP 200.
 
-### Common Issues
-- **401 Unauthorized**: Missing or malformed Bearer token, or secret mismatch.
-- **403 Forbidden**: Role is Viewer, tenant subscription is Suspended, or Basic plan attempted `process`.
-- **404 Not Found**: Malformed UUID or cross-tenant query attempts.
-- **409 Conflict**: Replay attempt with modified body payload or concurrent duplicate submission.
-- **429 Quota Exhausted**: Daily quota of 3 (Basic) or 10 (Pro) reached.
-
-## Rollback Procedure
-If a regression is detected:
-1. Identify the previous stable git commit SHA:
-   ```bash
-   PREV_SHA=$(git rev-parse --short HEAD~1)
-   ```
-2. Re-deploy specifying the prior image tag:
-   ```bash
-   cd infra
-   terraform apply -auto-approve \
-     -var-file="dev.tfvars" \
-     -var="image_tag=${PREV_SHA}" \
-     -target="azurerm_container_app.app" \
-     -target="azurerm_storage_container.subscriptions"
-   cd ..
-   ```
-3. Run verification:
-   ```bash
-   ./scripts/verify
-   ```
-
-## Teardown / Cleanup
+## Cleanup
 To destroy only the two team-owned resources (`azurerm_container_app.app` and `azurerm_storage_container.subscriptions`):
 ```bash
 ./scripts/cleanup infra/dev.tfvars
 ```
-**Confirmation**: Prompts for typed confirmation `DESTROY` to prevent accidental deletion.
+- Destroys only the two team-owned resources.
+- Requires explicit typed confirmation: user must enter `DESTROY`.
+- **Assistant Rule**: The assistant must STOP and ask the human first before running `./scripts/cleanup`.
+
+## Stop Conditions
+Halt execution and report immediately if any of the following occur:
+- Any command or script exits with a non-zero exit code.
+- `terraform plan -detailed-exitcode` detects changes or exits with a non-zero exit code (non-empty second plan).
+- Any HTTP request returns a `5xx` Server Error status code.
+- Any cross-tenant data is observed or returned (such as non-404 status when querying another tenant's run).
