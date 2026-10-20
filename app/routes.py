@@ -50,10 +50,17 @@ def get_tools(request: Request):
     if not sub:
         return make_error_response(status.HTTP_404_NOT_FOUND, "TENANT_NOT_FOUND", "Tenant not found")
 
+    allowed_ops = sub.get("allowed_operations", [])
     return {
         "tenant_id": user["tenant_id"],
         "plan": sub["plan"],
-        "allowed_operations": sub["allowed_operations"],
+        "allowed_operations": allowed_ops,
+        "process": {"allowed": "process" in allowed_ops},
+        "validate": {"allowed": "validate" in allowed_ops},
+        "tools": {
+            "validate": {"allowed": "validate" in allowed_ops},
+            "process": {"allowed": "process" in allowed_ops}
+        },
         "rules": ["R1", "R2", "R3", "R4"]
     }
 

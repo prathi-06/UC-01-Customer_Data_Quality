@@ -151,7 +151,12 @@ pip install -r requirements.txt
 ### Step 2: Configure Environment Variables
 ```bash
 cp .env.example .env
-# Edit .env and supply your Neon DATABASE_URL and JWT_SECRET
+# Edit .env:
+# 1. DATABASE_URL (must use postgresql+psycopg:// scheme):
+#    - Cloud Neon / Azure: postgresql+psycopg://user:password@host/dbname?sslmode=require
+#    - Local Postgres:     postgresql+psycopg://postgres:postgres@localhost:5432/customer_saas
+# 2. JWT_SECRET: generate a 48-byte URL-safe secret (must be >= 32 characters):
+#    python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
 ### Step 3: Run Database Migrations
@@ -169,7 +174,7 @@ cd ..
 
 ### Step 5: Run Automated Tests
 ```bash
-# Run full pytest suite (62 tests)
+# Run full pytest suite (63 tests)
 pytest -v
 ```
 

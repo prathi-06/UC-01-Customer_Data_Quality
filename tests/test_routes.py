@@ -322,3 +322,75 @@ def test_basic_process_403_no_run_row_no_usage():
     sub = client.get("/subscription", headers={"Authorization": f"Bearer {token}"}).json()
     assert sub["used_today"] == 0
 
+
+def test_dynamic_plan_entitlement_switch():
+    """
+    Harness set-plan acme Basic -> POST process returns 403 with no run row and no usage change,
+    and GET /tools shows process.allowed false; set-plan acme Pro -> process works again.
+    """
+    reset_runs("acme")
+    reset_quota("acme")
+    token = mint_token("acme:Operator")
+    headers = {"Authorization": f"Bearer {token}"}
+    payload = {
+        "operation": "process",
+        "records": [
+            {"record_id": "C01", "email": "alice@example.com", "credit_limit": 100, "status": "ACTIVE"}
+        ]
+    }
+
+    try:
+        # 1. Switch acme to Basic
+        change_plan("acme", "Basic")
+
+        # GET /tools shows process.allowed false
+        tools_res = client.get("/tools", headers=headers)
+        assert tools_res.status_code == 200
+        tools_data = tools_res.json()
+        assert "process" not in tools_data["allowed_operations"]
+        assert tools_data["process"]["allowed"] is False
+
+        # POST process returns 403 with no run row and no usage change
+        with engine.connect() as conn:
+            initial_runs = conn.execute(text("SELECT COUNT(*) FROM runs WHERE tenant_id = 'acme'")).scalar()
+            initial_usage = conn.execute(text("SELECT COUNT(*) FROM daily_usage WHERE tenant_id = 'acme'")).scalar()
+
+        post_res = client.post(
+            "/runs",
+            json=payload,
+            headers={**headers, "Idempotency-Key": "acme-dyn-plan-basic-1"}
+        )
+        assert post_res.status_code == 403
+        assert post_res.json()["error"]["code"] == "OPERATION_NOT_ALLOWED"
+
+        with engine.connect() as conn:
+            final_runs = conn.execute(text("SELECT COUNT(*) FROM runs WHERE tenant_id = 'acme'")).scalar()
+            final_usage = conn.execute(text("SELECT COUNT(*) FROM daily_usage WHERE tenant_id = 'acme'")).scalar()
+            assert final_runs == initial_runs == 0
+            assert final_usage == initial_usage == 0
+
+        sub = client.get("/subscription", headers=headers).json()
+        assert sub["used_today"] == 0
+
+        # 2. Switch acme back to Pro
+        change_plan("acme", "Pro")
+
+        # GET /tools shows process.allowed true
+        tools_pro = client.get("/tools", headers=headers).json()
+        assert "process" in tools_pro["allowed_operations"]
+        assert tools_pro["process"]["allowed"] is True
+
+        # POST process works again (201 Created, Succeeded)
+        post_pro = client.post(
+            "/runs",
+            json=payload,
+            headers={**headers, "Idempotency-Key": "acme-dyn-plan-pro-1"}
+        )
+        assert post_pro.status_code == 201
+        assert post_pro.json()["status"] == "Succeeded"
+        assert "result" in post_pro.json()
+
+    finally:
+        # Restore acme to Pro
+        change_plan("acme", "Pro")
+
