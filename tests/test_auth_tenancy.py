@@ -120,3 +120,13 @@ def test_tenant_override_rejections():
     )
     assert res_body.status_code == 400
     assert res_body.json()["error"]["code"] == "TENANT_OVERRIDE_REJECTED"
+
+def test_mint_token_hours():
+    from app.auth import decode_token
+    token_default = mint_token("acme:Operator")
+    payload_default = decode_token(token_default)
+    assert payload_default["exp"] - payload_default["iat"] == 8 * 3600
+
+    token_48 = mint_token("acme:Operator", expires_in_hours=48)
+    payload_48 = decode_token(token_48)
+    assert payload_48["exp"] - payload_48["iat"] == 48 * 3600

@@ -18,7 +18,7 @@ def load_seed() -> dict:
     with open(seed_file, "r", encoding="utf-8") as f:
         return json.load(f)
 
-def mint_token(user_identifier: str) -> str:
+def mint_token(user_identifier: str, expires_in_hours: int = 8) -> str:
     """
     user_identifier can be:
     - 'tenant:role' e.g. 'acme:Operator', 'globex:Viewer'
@@ -30,7 +30,7 @@ def mint_token(user_identifier: str) -> str:
     for t in seed_data.get("tenants", []):
         for u in t.get("users", []):
             if u["username"].lower() == user_identifier.lower():
-                return create_token(t["tenant_id"], u["username"], u["role"])
+                return create_token(t["tenant_id"], u["username"], u["role"], expires_in_hours=expires_in_hours)
 
     # Try tenant:role match
     if ":" in user_identifier:
@@ -39,9 +39,9 @@ def mint_token(user_identifier: str) -> str:
             if t["tenant_id"].lower() == t_id.lower():
                 for u in t.get("users", []):
                     if u["role"].lower() == role.lower():
-                        return create_token(t["tenant_id"], u["username"], u["role"])
+                        return create_token(t["tenant_id"], u["username"], u["role"], expires_in_hours=expires_in_hours)
                 # Fallback if tenant found but custom role
-                return create_token(t["tenant_id"], f"{t['tenant_id']}_{role.lower()}", role)
+                return create_token(t["tenant_id"], f"{t['tenant_id']}_{role.lower()}", role, expires_in_hours=expires_in_hours)
 
     raise ValueError(f"User identifier '{user_identifier}' not found in seed.json")
 
@@ -80,6 +80,7 @@ def main():
     # mint-token
     mint_parser = subparsers.add_parser("mint-token")
     mint_parser.add_argument("user", help="Username or tenant:role (e.g. acme:Operator, globex:Viewer)")
+    mint_parser.add_argument("--hours", type=int, default=8, help="Token expiration in hours (default 8)")
 
     # reset-runs
     reset_runs_p = subparsers.add_parser("reset-runs")
@@ -105,7 +106,7 @@ def main():
     args = parser.parse_args()
 
     if args.command == "mint-token":
-        tok = mint_token(args.user)
+        tok = mint_token(args.user, expires_in_hours=args.hours)
         print(tok)
     elif args.command == "reset-runs":
         reset_runs(args.tenant_id)
