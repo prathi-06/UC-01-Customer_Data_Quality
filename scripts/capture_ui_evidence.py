@@ -26,13 +26,14 @@ def wait_for_server(url: str, timeout: int = 15):
         time.sleep(0.5)
     return False
 
-def take_screenshot(url: str, output_path: Path):
+def take_screenshot(url: str, output_path: Path, window_size: str = "1200,900"):
     cmd = [
         CHROME_PATH,
         "--headless=new",
         "--disable-gpu",
         "--no-sandbox",
-        "--window-size=1200,900",
+        f"--window-size={window_size}",
+        "--virtual-time-budget=2000",
         f"--screenshot={str(output_path)}",
         url
     ]
@@ -55,20 +56,31 @@ def main():
             sys.exit(1)
         print("Server is up and healthy.")
 
-        # 1. Unauthenticated screen
+        # 1. Unauthenticated screen (centred sign-in panel)
         print("Capturing 01_tools_unauth.png...")
         take_screenshot("http://127.0.0.1:8000/", ui_dir / "01_tools_unauth.png")
 
         # 2. Authenticated Acme Pro Operator
         acme_tok = mint_token("acme:Operator")
         print("Capturing 02_tools_pro_active.png...")
-        # give browser a moment to render JS
         take_screenshot(f"http://127.0.0.1:8000/?token={acme_tok}", ui_dir / "02_tools_pro_active.png")
 
         # 3. Authenticated Globex Basic Operator (Process disabled)
         globex_tok = mint_token("globex:Operator")
         print("Capturing 03_tools_basic.png...")
         take_screenshot(f"http://127.0.0.1:8000/?token={globex_tok}", ui_dir / "03_tools_basic.png")
+
+        # 4. Wrong / rejected token shows "Token not accepted"
+        print("Capturing 04_wrong_token.png...")
+        take_screenshot("http://127.0.0.1:8000/?token=invalid_candidate_token", ui_dir / "04_wrong_token.png")
+
+        # 5. Switch user: token saved in sessionStorage, returns to panel with one-click saved user
+        print("Capturing 05_switch_user.png...")
+        take_screenshot(f"http://127.0.0.1:8000/?token={acme_tok}&switch=1", ui_dir / "05_switch_user.png")
+
+        # 6. Responsive layout at 400px width
+        print("Capturing 06_mobile_400px.png...")
+        take_screenshot("http://127.0.0.1:8000/", ui_dir / "06_mobile_400px.png", window_size="400,800")
 
         print("UI screenshots captured successfully in evidence/ui/")
 

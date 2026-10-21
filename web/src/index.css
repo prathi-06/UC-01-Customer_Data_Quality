@@ -406,6 +406,136 @@ tr.selected {
   color: #fbbf24;
 }
 
+/* User Identity in Header */
+.user-identity-box {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+}
+
+.user-identity-name {
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.user-identity-role {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.25);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.tenant-name-chip {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #cbd5e1;
+  background: rgba(51, 65, 85, 0.5);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: var(--radius-md);
+}
+
+/* Centred Sign-In Gate Panel */
+.sign-in-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 32px 16px;
+  width: 100%;
+}
+
+.sign-in-card {
+  width: 100%;
+  max-width: 480px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+}
+
+.sign-in-card .card-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+  text-align: center;
+  justify-content: center;
+}
+
+.sign-in-explanation {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  text-align: center;
+  margin-bottom: 20px;
+  line-height: 1.45;
+}
+
+.sign-in-textarea {
+  width: 100%;
+  min-height: 100px;
+  margin-bottom: 4px;
+  box-sizing: border-box;
+}
+
+.remembered-accounts-section {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.remembered-accounts-section .form-label {
+  margin-bottom: 10px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+}
+
+.remembered-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.remembered-btn {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-main);
+  transition: all 0.15s ease-in-out;
+}
+
+.remembered-btn:hover:not(:disabled) {
+  border-color: var(--primary);
+  background: #1e293b;
+  transform: translateY(-1px);
+}
+
+.remembered-indicator {
+  color: var(--success);
+  font-size: 0.75rem;
+  margin-right: 8px;
+}
+
+.remembered-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Responsive down to 400px */
 @media (max-width: 600px) {
   .app-header {
@@ -422,5 +552,8 @@ tr.selected {
   .btn {
     width: 100%;
     justify-content: center;
+  }
+  .sign-in-card {
+    padding: 20px 16px;
   }
 }

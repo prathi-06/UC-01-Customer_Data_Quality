@@ -1,14 +1,20 @@
 import { useEffect, useState } from "react";
 import {
   api,
-  initAuthToken,
+  getAuthToken,
   setAuthToken,
   clearAuthToken,
+  checkAndConsumeUrlToken,
+  parseTokenClaims,
+  getRememberedAccounts,
+  saveRememberedAccount,
+  setOnUnauthorized,
 } from "./api";
 import type {
   SubscriptionInfo,
   RunItem,
   RunResultResponse,
+  RememberedAccount,
 } from "./api";
 import { VALID_FIXTURE, INVALID_FIXTURE } from "./fixtures";
 
@@ -16,6 +22,15 @@ export default function App() {
   const [token, setToken] = useState<string | null>(null);
   const [tokenInput, setTokenInput] = useState("");
   const [activeTab, setActiveTab] = useState<"tools" | "history">("tools");
+
+  // Sign-in state
+  const [validating, setValidating] = useState(false);
+  const [signInError, setSignInError] = useState<string | null>(null);
+  const [rememberedAccounts, setRememberedAccounts] = useState<RememberedAccount[]>([]);
+
+  // User identity state from token & /subscription
+  const [currentUser, setCurrentUser] = useState<string>("");
+  const [currentRole, setCurrentRole] = useState<string>("");
 
   // Subscription state
   const [subscription, setSubscription] = useState<SubscriptionInfo | null>(null);
@@ -41,22 +56,119 @@ export default function App() {
   const [selectedRunResult, setSelectedRunResult] = useState<RunResultResponse | null>(null);
   const [resultLoading, setResultLoading] = useState(false);
 
-  // Initialize token from URL or session
+  // Authenticate token candidate against /subscription
+  const validateAndSignIn = async (candidateToken: string, autoSwitch: boolean = false) => {
+    const trimmed = candidateToken.trim();
+    if (!trimmed) {
+      setSignInError("Token not accepted");
+      return;
+    }
+
+    setValidating(true);
+    setSignInError(null);
+    setSubError(null);
+
+    // Save token in sessionStorage & memory
+    setAuthToken(trimmed);
+
+    try {
+      const res = await api.getSubscription();
+      if (res.status === 200 && res.data) {
+        const claims = parseTokenClaims(trimmed);
+        const user = (res.data as any)?.user || claims?.user || "Tester";
+        const role = (res.data as any)?.role || claims?.role || "Tester";
+        const tenantName = res.data.name || (res.data as any)?.tenant_name || res.data.tenant_id;
+
+        const label = `${user}, ${tenantName}, ${role}`;
+        const account: RememberedAccount = {
+          token: trimmed,
+          user,
+          tenant: tenantName,
+          role,
+          label,
+        };
+
+        const updated = saveRememberedAccount(account);
+        setRememberedAccounts(updated);
+
+        if (autoSwitch) {
+          clearAuthToken();
+          setToken(null);
+          setSubscription(null);
+          setTokenInput("");
+          setSignInError(null);
+        } else {
+          setToken(trimmed);
+          setSubscription(res.data);
+          setCurrentUser(user);
+          setCurrentRole(role);
+          setActiveTab("tools");
+          setTokenInput("");
+          setSignInError(null);
+
+          // Adjust operation if Basic plan
+          if (res.data.plan === "Basic" && operation === "process") {
+            setOperation("validate");
+          }
+        }
+      } else {
+        clearAuthToken();
+        setToken(null);
+        setSubscription(null);
+        setSignInError("Token not accepted");
+      }
+    } catch {
+      clearAuthToken();
+      setToken(null);
+      setSubscription(null);
+      setSignInError("Token not accepted");
+    } finally {
+      setValidating(false);
+    }
+  };
+
+  // Switch user: clears active token and returns to sign-in panel
+  const handleSwitchUser = () => {
+    clearAuthToken();
+    setToken(null);
+    setSubscription(null);
+    setSubmitResult(null);
+    setRuns([]);
+    setSelectedRunId(null);
+    setSignInError(null);
+    setTokenInput("");
+    setRememberedAccounts(getRememberedAccounts());
+  };
+
+  // Mount effect: handle 401 callback, URL ?token=, and existing sessionStorage
   useEffect(() => {
-    const t = initAuthToken();
-    if (t) {
-      setToken(t);
+    // Intercept 401 mid-session and return to panel
+    setOnUnauthorized(() => {
+      clearAuthToken();
+      setToken(null);
+      setSubscription(null);
+      setSignInError("Token not accepted");
+      setValidating(false);
+      setRememberedAccounts(getRememberedAccounts());
+    });
+
+    setRememberedAccounts(getRememberedAccounts());
+
+    // 1. Check URL query token (?token=...)
+    const params = new URLSearchParams(window.location.search);
+    const autoSwitch = params.get("switch") === "1";
+    const urlToken = checkAndConsumeUrlToken();
+    if (urlToken) {
+      validateAndSignIn(urlToken, autoSwitch);
+      return;
+    }
+
+    // 2. Check existing sessionStorage token
+    const stored = getAuthToken();
+    if (stored) {
+      validateAndSignIn(stored);
     }
   }, []);
-
-  // Fetch subscription data when token changes
-  useEffect(() => {
-    if (token) {
-      loadSubscription();
-    } else {
-      setSubscription(null);
-    }
-  }, [token]);
 
   // Fetch runs when switching to History tab
   useEffect(() => {
@@ -72,10 +184,14 @@ export default function App() {
       const res = await api.getSubscription();
       if (res.status === 200 && res.data) {
         setSubscription(res.data);
-        // If Basic, ensure operation is validate
         if (res.data.plan === "Basic" && operation === "process") {
           setOperation("validate");
         }
+      } else if (res.status === 401) {
+        clearAuthToken();
+        setToken(null);
+        setSubscription(null);
+        setSignInError("Token not accepted");
       } else {
         setSubError((res.data as any)?.error?.message || "Failed to load subscription.");
       }
@@ -92,6 +208,11 @@ export default function App() {
       const res = await api.getRuns();
       if (res.status === 200 && res.data && res.data.runs) {
         setRuns(res.data.runs);
+      } else if (res.status === 401) {
+        clearAuthToken();
+        setToken(null);
+        setSubscription(null);
+        setSignInError("Token not accepted");
       }
     } catch (e) {
       console.error("Error loading runs:", e);
@@ -108,29 +229,17 @@ export default function App() {
       const res = await api.getRunResult(runId);
       if (res.status === 200 && res.data) {
         setSelectedRunResult(res.data);
+      } else if (res.status === 401) {
+        clearAuthToken();
+        setToken(null);
+        setSubscription(null);
+        setSignInError("Token not accepted");
       }
     } catch (e) {
       console.error("Error loading run result:", e);
     } finally {
       setResultLoading(false);
     }
-  };
-
-  const handleApplyToken = () => {
-    if (tokenInput.trim()) {
-      setAuthToken(tokenInput.trim());
-      setToken(tokenInput.trim());
-      setTokenInput("");
-    }
-  };
-
-  const handleClearAuth = () => {
-    clearAuthToken();
-    setToken(null);
-    setSubscription(null);
-    setSubmitResult(null);
-    setRuns([]);
-    setSelectedRunId(null);
   };
 
   const handleSubmitRun = async () => {
@@ -157,6 +266,13 @@ export default function App() {
 
     try {
       const res = await api.createRun(operation, parsedRecords, idempotencyKey);
+      if (res.status === 401) {
+        clearAuthToken();
+        setToken(null);
+        setSubscription(null);
+        setSignInError("Token not accepted");
+        return;
+      }
       setSubmitResult({
         status: res.status,
         data: res.data,
@@ -190,9 +306,16 @@ export default function App() {
           <span className="brand-badge">UC-01</span>
         </div>
 
-        {/* Tenant context and quota indicators */}
+        {/* Tenant context, user identity and quota indicators */}
         {subscription && (
           <div className="tenant-bar">
+            <div className="user-identity-box" title="Authenticated User Profile">
+              <span className="user-identity-name">{currentUser}</span>
+              <span className="user-identity-role">{currentRole}</span>
+            </div>
+            <div className="tenant-name-chip" title="Tenant Organization">
+              {subscription.name}
+            </div>
             <div>
               <span className={`chip chip-${subscription.plan.toLowerCase()}`}>
                 {subscription.plan} Plan
@@ -227,44 +350,87 @@ export default function App() {
         )}
 
         {token && (
-          <button className="btn btn-secondary" onClick={handleClearAuth} title="Disconnect session">
-            Log out
+          <button className="btn btn-secondary" onClick={handleSwitchUser} title="Switch to another user">
+            Switch user
           </button>
         )}
       </header>
 
-      {/* Authentication Banner if missing token */}
+      {/* Subscription Notice Alert */}
       {subError && (
         <div className="alert alert-error" style={{ marginBottom: 16 }}>
           <strong>Subscription Notice:</strong> {subError}
         </div>
       )}
 
+      {/* SIGN-IN PANEL: Displayed when not authenticated or on 401 */}
       {!token && (
-        <div className="card">
-          <h2 className="card-title">Authentication Required</h2>
-          <p style={{ color: "var(--text-muted)", marginBottom: 16 }}>
-            Please authenticate using a bearer session token. You can pass <code>?token=...</code> in the
-            URL or paste a minted token below:
-          </p>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <input
-              type="text"
-              placeholder="Paste JWT Token..."
-              value={tokenInput}
-              onChange={(e) => setTokenInput(e.target.value)}
-              style={{
-                flex: "1 1 300px",
-                padding: "8px 12px",
-                borderRadius: "var(--radius-md)",
-                border: "1px solid var(--border)",
-                background: "var(--bg-input)",
-                color: "#fff",
+        <div className="sign-in-wrapper">
+          <div className="card sign-in-card">
+            <h2 className="card-title">Sign in</h2>
+            <p className="sign-in-explanation">
+              Tokens are issued to testers to evaluate tenant data isolation and features.
+            </p>
+
+            {signInError && (
+              <div className="alert alert-error" role="alert" style={{ marginBottom: 16 }}>
+                <strong>{signInError}</strong>
+              </div>
+            )}
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                validateAndSignIn(tokenInput);
               }}
-            />
-            <button className="btn btn-primary" onClick={handleApplyToken}>
-              Set Token
-            </button>
+            >
+              <div className="form-group">
+                <label htmlFor="test-token-input" className="form-label">
+                  Paste your test token
+                </label>
+                <textarea
+                  id="test-token-input"
+                  className="input-code sign-in-textarea"
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  placeholder="Paste your test token here..."
+                  rows={4}
+                  required
+                  aria-required="true"
+                />
+              </div>
+
+              <div className="btn-group">
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={validating || !tokenInput.trim()}
+                >
+                  {validating ? "Validating token..." : "Sign in"}
+                </button>
+              </div>
+            </form>
+
+            {rememberedAccounts.length > 0 && (
+              <div className="remembered-accounts-section">
+                <span className="form-label">Saved test sessions (one-click switch)</span>
+                <div className="remembered-list" role="list">
+                  {rememberedAccounts.map((acc, index) => (
+                    <button
+                      key={`${acc.user}-${acc.tenant}-${index}`}
+                      type="button"
+                      className="btn btn-secondary remembered-btn"
+                      onClick={() => validateAndSignIn(acc.token)}
+                      disabled={validating}
+                      aria-label={`Sign in as ${acc.label}`}
+                    >
+                      <span className="remembered-indicator" aria-hidden="true">●</span>
+                      <span className="remembered-label">{acc.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

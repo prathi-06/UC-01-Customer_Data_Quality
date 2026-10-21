@@ -70,21 +70,91 @@ export interface CreateRunResponse {
 // Token management in-memory & sessionStorage
 let inMemoryToken: string | null = null;
 
-export function initAuthToken(): string | null {
+export interface RememberedAccount {
+  token: string;
+  user: string;
+  tenant: string;
+  role: string;
+  label: string;
+}
+
+const REMEMBERED_STORAGE_KEY = "saas_remembered_accounts";
+const AUTH_TOKEN_KEY = "saas_auth_token";
+
+export function getRememberedAccounts(): RememberedAccount[] {
+  try {
+    const raw = sessionStorage.getItem(REMEMBERED_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.slice(0, 4);
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveRememberedAccount(account: RememberedAccount): RememberedAccount[] {
+  try {
+    const existing = getRememberedAccounts();
+    const filtered = existing.filter((a) => a.token !== account.token && a.label !== account.label);
+    const updated = [account, ...filtered].slice(0, 4);
+    sessionStorage.setItem(REMEMBERED_STORAGE_KEY, JSON.stringify(updated));
+    return updated;
+  } catch {
+    return [];
+  }
+}
+
+export function parseTokenClaims(token: string): { user?: string; role?: string; tenant_id?: string; exp?: number } | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+        .join("")
+    );
+    return JSON.parse(jsonPayload);
+  } catch {
+    return null;
+  }
+}
+
+export function checkAndConsumeUrlToken(): string | null {
+  if (typeof window === "undefined") return null;
   const params = new URLSearchParams(window.location.search);
   const tokenFromUrl = params.get("token");
   if (tokenFromUrl) {
-    inMemoryToken = tokenFromUrl;
-    sessionStorage.setItem("saas_auth_token", tokenFromUrl);
-    // Clean URL
     params.delete("token");
     const newSearch = params.toString();
-    const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : "");
+    const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : "") + window.location.hash;
     window.history.replaceState({}, document.title, newUrl);
     return tokenFromUrl;
   }
+  return null;
+}
 
-  const storedToken = sessionStorage.getItem("saas_auth_token");
+type UnauthorizedHandler = () => void;
+let unauthorizedHandler: UnauthorizedHandler | null = null;
+
+export function setOnUnauthorized(handler: UnauthorizedHandler | null): void {
+  unauthorizedHandler = handler;
+}
+
+export function initAuthToken(): string | null {
+  const urlToken = checkAndConsumeUrlToken();
+  if (urlToken) {
+    inMemoryToken = urlToken;
+    sessionStorage.setItem(AUTH_TOKEN_KEY, urlToken);
+    return urlToken;
+  }
+
+  const storedToken = sessionStorage.getItem(AUTH_TOKEN_KEY);
   if (storedToken) {
     inMemoryToken = storedToken;
     return storedToken;
@@ -94,17 +164,17 @@ export function initAuthToken(): string | null {
 }
 
 export function getAuthToken(): string | null {
-  return inMemoryToken || sessionStorage.getItem("saas_auth_token");
+  return inMemoryToken || sessionStorage.getItem(AUTH_TOKEN_KEY);
 }
 
 export function setAuthToken(token: string): void {
   inMemoryToken = token;
-  sessionStorage.setItem("saas_auth_token", token);
+  sessionStorage.setItem(AUTH_TOKEN_KEY, token);
 }
 
 export function clearAuthToken(): void {
   inMemoryToken = null;
-  sessionStorage.removeItem("saas_auth_token");
+  sessionStorage.removeItem(AUTH_TOKEN_KEY);
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<{ status: number; data: T }> {
@@ -119,6 +189,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<{ st
     ...options,
     headers,
   });
+
+  if (response.status === 401) {
+    clearAuthToken();
+    if (unauthorizedHandler) {
+      unauthorizedHandler();
+    }
+  }
 
   const contentType = response.headers.get("content-type");
   let data: any = null;
